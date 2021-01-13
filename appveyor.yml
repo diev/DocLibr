@@ -1,0 +1,80 @@
+version: '{build}'
+pull_requests:
+  do_not_increment_build_number: true
+branches:
+  only:
+  - main
+skip_tags: true
+image: Visual Studio 2019
+configuration: Release
+init:
+- cmd: >-
+    tzutil /s "Russian Standard Time"
+
+    git config --global core.autocrlf input
+assembly_info:
+  patch: true
+  file: '**\AssemblyInfo.*'
+  assembly_version: '{version}'
+  assembly_file_version: '{version}'
+  assembly_informational_version: '{version}'
+dotnet_csproj:
+  patch: true
+  file: '**\*.csproj'
+  version: '{version}'
+  version_prefix: '{version}'
+  package_version: '{version}'
+  assembly_version: '{version}'
+  file_version: '{version}'
+  informational_version: '{version}'
+install:
+- ps: >-
+    $AssemblyFile = "Properties\AssemblyInfo.cs"
+
+    $RegularExpression = [regex] '^\[assembly: AssemblyFileVersion\(\"(\d*\.\d*\.\d*)\.\d*\"\)\]$'
+
+    $FileContent = Get-Content $AssemblyFile
+
+    foreach($content in $FileContent) {
+      $match = [System.Text.RegularExpressions.Regex]::Match($content, $RegularExpression)
+      if($match.Success) {
+        $env:VERSION = $match.groups[1].value
+        break;
+      }
+    }
+
+
+    Update-AppveyorBuild -Version ("{0}.{1}" -f $env:VERSION, $env:APPVEYOR_BUILD_NUMBER)
+
+    $CommitDateTime = [datetime]::Parse($env:APPVEYOR_REPO_COMMIT_TIMESTAMP)
+
+    $env:BuildDate = $CommitDateTime.ToString('yyyy-MM-dd')
+
+    $env:Site = "http://{0}.github.io/{1}" -f $env:APPVEYOR_ACCOUNT_NAME, $env:APPVEYOR_PROJECT_NAME
+
+    Write-Host "Building v$env:APPVEYOR_BUILD_VERSION dated $env:BuildDate"
+build:
+  project: $(appveyor_project_name).sln
+  verbosity: minimal
+after_build:
+- cmd: 7z a %APPVEYOR_PROJECT_NAME%-v%APPVEYOR_BUILD_VERSION%.zip @Package readme.txt readme.url
+artifacts:
+- path: $(appveyor_project_name)-v$(appveyor_build_version).zip
+  name: AppZip
+deploy:
+- provider: GitHub
+  tag: v$(appveyor_build_version)
+  release: $(appveyor_project_name) v$(appveyor_build_version)
+  description: '* $(appveyor_repo_commit_message)\n\nBuild #$(appveyor_build_number) by AppVeyor $(BuildDate)\nSee docs on $(Site)'
+  auth_token:
+    secure: IjTWO6soNEs0aKR1WPaYNhmZXxfuKvFkznLT1Ytk4C85dllyrtWP1YcfKYE0dKCiENJWqhob3je1y0pGWKCZ0r4Y+QqiLpliGtHwKEkIUqs=
+  artifact: AppZip
+  prerelease: true
+  force_update: true
+  on:
+    branch: main
+
+only_commits:
+  files:
+    - '*.cs'
+    - '*.yml'
