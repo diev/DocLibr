@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net5.0</TargetFramework>
+    <Authors>Dmitrii Evdokimov</Authors>
+    <Company>cibank.ru</Company>
+    <Product>DocLibr</Product>
+    <Description>Bulk import a folder of files into an internal storage.</Description>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageProjectUrl>https://github.com/diev/DocLibr</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/diev/DocLibr.git</RepositoryUrl>
+    <RepositoryType>GIT</RepositoryType>
+    <Copyright>(c) 2021</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\LICENSE">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>
