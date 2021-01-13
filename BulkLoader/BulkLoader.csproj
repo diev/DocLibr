@@ -4,21 +4,16 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net5.0</TargetFramework>
     <Authors>Dmitrii Evdokimov</Authors>
-    <Company>cibank.ru</Company>
+    <Company>dievdo.ru</Company>
     <Product>DocLibr</Product>
     <Description>Bulk import a folder of files into an internal storage.</Description>
-    <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <PackageProjectUrl>https://github.com/diev/DocLibr</PackageProjectUrl>
+    <PackageLicenseFile></PackageLicenseFile>
+    <PackageProjectUrl>https://dievdo.ru/DocLibr</PackageProjectUrl>
     <RepositoryUrl>https://github.com/diev/DocLibr.git</RepositoryUrl>
     <RepositoryType>GIT</RepositoryType>
-    <Copyright>(c) 2021</Copyright>
+    <Copyright>(c) 2021 Dmitrii Evdokimov</Copyright>
+    <StartupObject>BulkLoader.Program</StartupObject>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
-
-  <ItemGroup>
-    <None Include="..\LICENSE">
-      <Pack>True</Pack>
-      <PackagePath></PackagePath>
-    </None>
-  </ItemGroup>
 
 </Project>
