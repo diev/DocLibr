@@ -25,7 +25,7 @@ namespace BulkLoader
     class Program
     {
         //TODO: Option
-        readonly static string pathSource = Path.Combine(Environment.ExpandEnvironmentVariables("%USERPROFILE%"), "Documents");
+        readonly static string pathSource = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         readonly static string pathStore = Path.Combine(Environment.ExpandEnvironmentVariables("%TEMP%"), "DocLibr");
 
         static void Main(string[] args)
@@ -59,12 +59,12 @@ namespace BulkLoader
             //Skip possible exceptions with default options (no hidden, no restricted, etc.)
             EnumerationOptions options = new EnumerationOptions();
 
-            foreach (var fi in dir.GetFiles("*", options))
+            foreach (var fi in dir.EnumerateFiles("*", options))
             {
                 EachFile(fi);
             }
 
-            foreach (var di in dir.GetDirectories("*", options))
+            foreach (var di in dir.EnumerateDirectories("*", options))
             {
                 EachDir(di);
             }
@@ -85,16 +85,30 @@ namespace BulkLoader
                     string temp = Path.GetTempFileName();
                     CompressFile(file, temp);
                     HashFile(temp, out string hex, out string base64, out string path);
-                    File.Move(temp, path + file.Extension + ".gz", true);
-
-                    Console.WriteLine($"{hex} {base64} {file.FullName}.gz");
+                    path += ".gz";
+                    if (File.Exists(path))
+                    {
+                        File.Delete(temp);
+                        Console.WriteLine($"{file.FullName}.gz exists!");
+                    }
+                    else
+                    {
+                        File.Move(temp, path);
+                        Console.WriteLine($"{hex} {base64} {file.FullName}.gz");
+                    }
                 }
                 else
                 {
                     HashFile(file.FullName, out string hex, out string base64, out string path);
-                    file.CopyTo(path + file.Extension, true);
-
-                    Console.WriteLine($"{hex} {base64} {file.FullName}");
+                    if (File.Exists(path))
+                    {
+                        Console.WriteLine($"{file.FullName} exists!");
+                    }
+                    else
+                    {
+                        file.CopyTo(path);
+                        Console.WriteLine($"{hex} {base64} {file.FullName}");
+                    }
                 }
             }
             catch
@@ -119,15 +133,15 @@ namespace BulkLoader
         /// <summary>
         /// Calc the hash of file and related values
         /// </summary>
-        /// <param name="file">Source file</param>
+        /// <param name="filename">Source file</param>
         /// <param name="hex">Hex string in uppercase (length 32 for MD5)</param>
         /// <param name="base64">Base64 string without trail == (length 22 for MD5)</param>
-        /// <param name="path">Destination file without any extension</param>
-        static void HashFile(string file, out string hex, out string base64, out string path)
+        /// <param name="path">Destination hex filename with extension of source filename</param>
+        static void HashFile(string filename, out string hex, out string base64, out string path)
         {
             const int width = 2; //TODO: Option Number of chars (2) in subdir names: \AB\CD\ABCDEF.ext
 
-            using FileStream fileStream = File.OpenRead(file);
+            using FileStream fileStream = File.OpenRead(filename);
             using MD5 algorithm = MD5.Create();
             byte[] hash = algorithm.ComputeHash(fileStream);
 
@@ -136,7 +150,7 @@ namespace BulkLoader
 
             path = Path.Combine(pathStore, hex.Substring(0, width), hex.Substring(width, width));
             Directory.CreateDirectory(path);
-            path = Path.Combine(path, hex);
+            path = Path.Combine(path, hex + Path.GetExtension(filename));
         }
     }
 }
