@@ -17,8 +17,7 @@
 
 using System;
 using System.IO;
-using System.IO.Compression;
-using System.Security.Cryptography;
+using Tools;
 
 namespace BulkLoader
 {
@@ -74,7 +73,7 @@ namespace BulkLoader
         /// Process every file
         /// </summary>
         /// <param name="file">File</param>
-        static void EachFile(FileInfo file)
+        static async void EachFile(FileInfo file)
         {
             const bool compress = true; //TODO: Option
 
@@ -83,9 +82,14 @@ namespace BulkLoader
                 if (compress && !file.Extension.Equals(".gz", StringComparison.OrdinalIgnoreCase))
                 {
                     string temp = Path.GetTempFileName();
-                    CompressFile(file, temp);
-                    HashFile(temp, out string hex, out string base64, out string path);
-                    path += ".gz";
+                    await FileIO.CompressFileAsync(file, temp);
+                    byte[] hash = await FileIO.HashFileAsync(temp);
+
+                    string hex = Convert.ToHexString(hash); // Length is 32 for MD5
+                    string base64 = Convert.ToBase64String(hash).Substring(0, 22); // Length is 24 for MD5, then trim trailing ==
+
+                    string path = FileIO.CreatePath(pathStore, hex, file.Extension + ".gz");
+
                     if (File.Exists(path))
                     {
                         File.Delete(temp);
@@ -97,9 +101,15 @@ namespace BulkLoader
                         Console.WriteLine($"{hex} {base64} {file.FullName}.gz");
                     }
                 }
-                else
+                else // compress == false
                 {
-                    HashFile(file.FullName, out string hex, out string base64, out string path);
+                    byte[] hash = await FileIO.HashFileAsync(file.FullName);
+
+                    string hex = Convert.ToHexString(hash); // Length is 32 for MD5
+                    string base64 = Convert.ToBase64String(hash).Substring(0, 22); // Length is 24 for MD5, then trim trailing ==
+
+                    string path = FileIO.CreatePath(pathStore, hex, file.Extension);
+
                     if (File.Exists(path))
                     {
                         Console.WriteLine($"{file.FullName} exists!");
@@ -115,42 +125,6 @@ namespace BulkLoader
             {
                 Console.WriteLine($"{file.FullName} skipped!");
             }
-        }
-
-        /// <summary>
-        /// Compress a file with GZip
-        /// </summary>
-        /// <param name="file">Source file</param>
-        /// <param name="path">Destination file</param>
-        static void CompressFile(FileInfo file, string path)
-        {
-            using FileStream fileStream = file.OpenRead();
-            using FileStream gzStream = File.Create(path);
-            using GZipStream compressionStream = new GZipStream(gzStream, CompressionMode.Compress);
-            fileStream.CopyTo(compressionStream);
-        }
-
-        /// <summary>
-        /// Calc the hash of file and related values
-        /// </summary>
-        /// <param name="filename">Source file</param>
-        /// <param name="hex">Hex string in uppercase (length 32 for MD5)</param>
-        /// <param name="base64">Base64 string without trail == (length 22 for MD5)</param>
-        /// <param name="path">Destination hex filename with extension of source filename</param>
-        static void HashFile(string filename, out string hex, out string base64, out string path)
-        {
-            const int width = 2; //TODO: Option Number of chars (2) in subdir names: \AB\CD\ABCDEF.ext
-
-            using FileStream fileStream = File.OpenRead(filename);
-            using MD5 algorithm = MD5.Create();
-            byte[] hash = algorithm.ComputeHash(fileStream);
-
-            hex = Convert.ToHexString(hash); // Length is 32 for MD5
-            base64 = Convert.ToBase64String(hash).Substring(0, 22); // Length is 24 for MD5, then trim trailing ==
-
-            path = Path.Combine(pathStore, hex.Substring(0, width), hex.Substring(width, width));
-            Directory.CreateDirectory(path);
-            path = Path.Combine(path, hex + Path.GetExtension(filename));
         }
     }
 }
