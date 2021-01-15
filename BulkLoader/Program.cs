@@ -17,17 +17,18 @@
 
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using Tools;
 
 namespace BulkLoader
 {
-    class Program
+    public class Program
     {
         //TODO: Option
         readonly static string pathSource = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         readonly static string pathStore = Path.Combine(Environment.ExpandEnvironmentVariables("%TEMP%"), "DocLibr");
 
-        static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             DirectoryInfo dirSource = new DirectoryInfo(pathSource);
             DirectoryInfo dirStore = new DirectoryInfo(pathStore);
@@ -44,86 +45,79 @@ namespace BulkLoader
                 dirStore.Create();
             }
 
-            EachDir(dirSource);
+            await EachDirAsync(dirSource);
         }
 
         /// <summary>
         /// Process recursively every folder with files and subfolders
         /// </summary>
-        /// <param name="dir">Folder</param>
-        static void EachDir(DirectoryInfo dir)
+        /// <param name="dir">Folder to process</param>
+        public static async Task EachDirAsync(DirectoryInfo dir)
         {
-            Console.WriteLine(dir.FullName);
+            Guid guid = FileIO.GuidPath(dir.FullName);
+
+            Console.WriteLine($@"{guid} {dir.FullName}\");
 
             //Skip possible exceptions with default options (no hidden, no restricted, etc.)
             EnumerationOptions options = new EnumerationOptions();
 
-            foreach (var fi in dir.EnumerateFiles("*", options))
+            foreach (var fi in dir.GetFiles("*", options))
             {
-                EachFile(fi);
+                await EachFileAsync(fi);
             }
 
-            foreach (var di in dir.EnumerateDirectories("*", options))
+            foreach (var di in dir.GetDirectories("*", options))
             {
-                EachDir(di);
+                await EachDirAsync(di);
             }
         }
 
         /// <summary>
         /// Process every file
         /// </summary>
-        /// <param name="file">File</param>
-        static async void EachFile(FileInfo file)
+        /// <param name="file">File to process</param>
+        public static async Task EachFileAsync(FileInfo file)
         {
-            const bool compress = true; //TODO: Option
+            string ext = file.Extension.ToLower();
+            string temp = Path.Combine(pathStore, file.Name);
 
             try
             {
-                if (compress && !file.Extension.Equals(".gz", StringComparison.OrdinalIgnoreCase))
+                switch (ext)
                 {
-                    string temp = Path.GetTempFileName();
-                    await FileIO.CompressFileAsync(file, temp);
-                    byte[] hash = await FileIO.HashFileAsync(temp);
+                    case ".gz":
+                    case ".zip":
+                        file.CopyTo(temp, true);
+                        break;
 
-                    string hex = Convert.ToHexString(hash); // Length is 32 for MD5
-                    string base64 = Convert.ToBase64String(hash).Substring(0, 22); // Length is 24 for MD5, then trim trailing ==
-
-                    string path = FileIO.CreatePath(pathStore, hex, file.Extension + ".gz");
-
-                    if (File.Exists(path))
-                    {
-                        File.Delete(temp);
-                        Console.WriteLine($"{file.FullName}.gz exists!");
-                    }
-                    else
-                    {
-                        File.Move(temp, path);
-                        Console.WriteLine($"{hex} {base64} {file.FullName}.gz");
-                    }
+                    default:
+                        await FileIO.CompressFileAsync(file, temp);
+                        ext += ".gz";
+                        break;
                 }
-                else // compress == false
+
+                Guid guid = await FileIO.GuidFileAsync(temp);
+                string path = FileIO.CreatePath(pathStore, guid, ext);
+
+                if (File.Exists(path)) // Add same file from another folder
                 {
-                    byte[] hash = await FileIO.HashFileAsync(file.FullName);
-
-                    string hex = Convert.ToHexString(hash); // Length is 32 for MD5
-                    string base64 = Convert.ToBase64String(hash).Substring(0, 22); // Length is 24 for MD5, then trim trailing ==
-
-                    string path = FileIO.CreatePath(pathStore, hex, file.Extension);
-
-                    if (File.Exists(path))
-                    {
-                        Console.WriteLine($"{file.FullName} exists!");
-                    }
-                    else
-                    {
-                        file.CopyTo(path);
-                        Console.WriteLine($"{hex} {base64} {file.FullName}");
-                    }
+                    File.Delete(temp);
+                    Console.WriteLine($"{file.FullName} exists!");
                 }
+                else // Add unique file
+                {
+                    File.Move(temp, path);
+                    Console.WriteLine($"{guid} {file.FullName}");
+                }
+#if !DEBUG
+                file.Delete();
+#endif
             }
             catch
             {
+                Console.BackgroundColor = ConsoleColor.Red;
                 Console.WriteLine($"{file.FullName} skipped!");
+                Console.ResetColor();
             }
         }
     }

@@ -15,30 +15,25 @@
 //------------------------------------------------------------------------------
 #endregion
 
+using System;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace Tools
 {
     public static class FileIO
     {
-        private static readonly MD5 algorithm = MD5.Create();
+        private static readonly MD5 md5 = MD5.Create();
 
         /// <summary>
         /// Compress a file with GZip
         /// </summary>
         /// <param name="file">Source file</param>
         /// <param name="path">Destination file</param>
-        public static async 
-        /// <summary>
-        /// Compress a file with GZip
-        /// </summary>
-        /// <param name="file">Source file</param>
-        /// <param name="path">Destination file</param>
-        Task
-CompressFileAsync(FileInfo file, string path)
+        public static async Task CompressFileAsync(FileInfo file, string path)
         {
             using FileStream originalStream = file.OpenRead();
             using FileStream gzipStream = File.Create(path);
@@ -49,25 +44,40 @@ CompressFileAsync(FileInfo file, string path)
         /// <summary>
         /// Decompress a file with GZip
         /// </summary>
-        /// <param name="file">Source file</param>
+        /// <param name="filename">Source file</param>
         /// <param name="path">Destination file</param>
-        public static async void DecompressFileAsync(FileInfo file, string path)
+        public static async Task DecompressFileAsync(string filename, string path)
         {
-            using FileStream gzipStream = file.OpenRead();
+            using FileStream gzipStream = File.OpenRead(filename);
             using FileStream originalStream = File.Create(path);
             using GZipStream decompressionStream = new GZipStream(gzipStream, CompressionMode.Decompress);
             await decompressionStream.CopyToAsync(originalStream);
         }
 
         /// <summary>
-        /// Calc the hash of a file
+        /// Get the guid from the hash of a path
+        /// </summary>
+        /// <param name="path">Source path</param>
+        /// <returns>Guid of path aka MD5 hash</returns>
+        public static Guid GuidPath(string path)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(path);
+            byte[] bytes = md5.ComputeHash(data); // MD5 produces 16 bytes like GUID
+            Guid hash = new Guid(bytes);
+            return hash;
+        }
+
+        /// <summary>
+        /// Get the guid from the hash of a file
         /// </summary>
         /// <param name="filename">Source file</param>
-        /// <returns>32 bytes of MD5 hash</returns>
-        public static async Task<byte[]> HashFileAsync(string filename)
+        /// <returns>Guid of file aka MD5 hash</returns>
+        public static async Task<Guid> GuidFileAsync(string filename)
         {
             using FileStream fileStream = File.OpenRead(filename);
-            return await algorithm.ComputeHashAsync(fileStream);
+            byte[] bytes = await md5.ComputeHashAsync(fileStream); // MD5 produces 16 bytes like GUID
+            Guid hash = new Guid(bytes);
+            return hash;
         }
 
         /// <summary>
@@ -77,10 +87,11 @@ CompressFileAsync(FileInfo file, string path)
         /// <param name="hex">Hex hash of a file</param>
         /// <param name="ext">Extension of a new file</param>
         /// <returns>Destination filename without extension</returns>
-        public static string CreatePath(string basepath, string hex, string ext)
+        public static string CreatePath(string basepath, Guid guid, string ext)
         {
             const int width = 2; //TODO: Option Number of chars (2) in subdir names: \AB\CD\ABCDEF.ext
 
+            string hex = guid.ToString();
             string dir = Path.Combine(basepath, hex.Substring(0, width), hex.Substring(width, width));
             string path = Path.Combine(dir, hex) + ext;
             Directory.CreateDirectory(dir); // and subfolders
