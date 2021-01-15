@@ -45,30 +45,30 @@ namespace BulkLoader
                 dirStore.Create();
             }
 
-            await EachDirAsync(dirSource);
+            await EachDirAsync(dirSource, Guid.Empty);
         }
 
         /// <summary>
         /// Process recursively every folder with files and subfolders
         /// </summary>
         /// <param name="dir">Folder to process</param>
-        public static async Task EachDirAsync(DirectoryInfo dir)
+        public static async Task EachDirAsync(DirectoryInfo dir, Guid parent)
         {
             Guid guid = FileIO.GuidPath(dir.FullName);
 
-            Console.WriteLine($@"{guid} {dir.FullName}\");
+            Console.WriteLine($@"{parent}\{guid} {dir.FullName}\");
 
             //Skip possible exceptions with default options (no hidden, no restricted, etc.)
             EnumerationOptions options = new EnumerationOptions();
 
             foreach (var fi in dir.GetFiles("*", options))
             {
-                await EachFileAsync(fi);
+                await EachFileAsync(fi, guid);
             }
 
             foreach (var di in dir.GetDirectories("*", options))
             {
-                await EachDirAsync(di);
+                await EachDirAsync(di, guid);
             }
         }
 
@@ -76,7 +76,7 @@ namespace BulkLoader
         /// Process every file
         /// </summary>
         /// <param name="file">File to process</param>
-        public static async Task EachFileAsync(FileInfo file)
+        public static async Task EachFileAsync(FileInfo file, Guid parent)
         {
             string ext = file.Extension.ToLower();
             string temp = Path.Combine(pathStore, file.Name);
@@ -107,7 +107,7 @@ namespace BulkLoader
                 else // Add unique file
                 {
                     File.Move(temp, path);
-                    Console.WriteLine($"{guid} {file.FullName}");
+                    Console.WriteLine($@"{parent}\{guid} {file.FullName}");
                 }
 #if !DEBUG
                 file.Delete();
