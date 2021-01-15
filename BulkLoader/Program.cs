@@ -52,7 +52,7 @@ namespace BulkLoader
         /// Process recursively every folder with files and subfolders
         /// </summary>
         /// <param name="dir">Folder to process</param>
-        public static async Task EachDirAsync(DirectoryInfo dir, Guid parent)
+        public static Task EachDirAsync(DirectoryInfo dir, Guid parent)
         {
             Guid guid = FileIO.GuidPath(dir.FullName);
 
@@ -63,13 +63,15 @@ namespace BulkLoader
 
             foreach (var fi in dir.GetFiles("*", options))
             {
-                await EachFileAsync(fi, guid);
+                _ = EachFileAsync(fi, guid);
             }
 
             foreach (var di in dir.GetDirectories("*", options))
             {
-                await EachDirAsync(di, guid);
+                _ = EachDirAsync(di, guid);
             }
+
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -115,9 +117,9 @@ namespace BulkLoader
             }
             catch
             {
-                Console.BackgroundColor = ConsoleColor.Red;
-                Console.WriteLine($"{file.FullName} skipped!");
-                Console.ResetColor();
+                //Console.BackgroundColor = ConsoleColor.Red; // Unuseful with Async
+                Console.WriteLine($"  ERROR: {file.FullName} skipped!");
+                //Console.ResetColor();
             }
         }
     }
