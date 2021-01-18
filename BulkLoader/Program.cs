@@ -17,7 +17,10 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+
+using Model;
 using Tools;
 
 namespace BulkLoader
@@ -49,20 +52,48 @@ namespace BulkLoader
                 dirStore.Create();
             }
 
+            using (ApplicationContext db = new ApplicationContext())
+            {
+#if DEBUG
+                await db.Database.EnsureDeletedAsync();
+#endif
+                await db.Database.EnsureCreatedAsync();
+            }
+
             await EachDirAsync(dirSource, Guid.Empty);
-            Console.WriteLine($"Total Dirs: {totalDirs}, Files: {totalFiles}, Size: {totalSize / 1024 / 1024}Mb done.");
+            Console.WriteLine($"\nTotal Dirs: {totalDirs}, Files: {totalFiles}, Size: {totalSize / 1024 / 1024}Mb done.\n");
+
+            using (ApplicationContext db = new ApplicationContext())
+            {
+                var items = db.Items.ToList();
+                foreach (Item item in items)
+                {
+                    Console.WriteLine($"{item.Id} {item.Name}");
+                }
+            }
         }
 
         /// <summary>
         /// Process recursively every folder with files and subfolders
         /// </summary>
         /// <param name="dir">Folder to process</param>
-        public static Task EachDirAsync(DirectoryInfo dir, Guid parent)
+        public static async Task EachDirAsync(DirectoryInfo dir, Guid parent)
         {
             totalDirs++;
             Guid guid = FileIO.GuidPath(dir.FullName);
 
-            //Console.WriteLine($@"{parent}\{guid} {dir.FullName}\");
+            using (ApplicationContext db = new ApplicationContext())
+            {
+                Item item = new Item { Id = guid, Name = dir.Name, Path = dir.FullName, Registered = dir.CreationTime };
+
+                Link uplink = new Link { Item = guid, Next = parent, Parent = true };
+                Link downlink = new Link { Item = parent, Next = guid, Parent = false };
+
+                await db.Items.AddAsync(item);
+                await db.Links.AddRangeAsync(uplink, downlink);
+                await db.SaveChangesAsync();
+            }
+
             Console.WriteLine($"{dir.FullName}");
 
             //Skip possible exceptions with default options (no hidden, no restricted, etc.)
@@ -70,15 +101,13 @@ namespace BulkLoader
 
             foreach (var fi in dir.GetFiles("*", options))
             {
-                _ = EachFileAsync(fi, guid, true);
+                await EachFileAsync(fi, guid, true);
             }
 
             foreach (var di in dir.GetDirectories("*", options))
             {
-                _ = EachDirAsync(di, guid);
+                await EachDirAsync(di, guid);
             }
-
-            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -124,15 +153,35 @@ namespace BulkLoader
                 Guid guid = await FileIO.GuidFileAsync(temp);
                 string path = FileIO.CreatePath(pathStore, guid, ext);
 
-                if (File.Exists(path)) // Add same file from another folder
+                if (File.Exists(path)) // Add same file from another folder (ask for edit?)
                 {
+                    using (ApplicationContext db = new ApplicationContext())
+                    {
+                        Link uplink = new Link { Item = guid, Next = parent, Parent = true };
+                        Link downlink = new Link { Item = parent, Next = guid, Parent = false };
+
+                        await db.Links.AddRangeAsync(uplink, downlink);
+                        await db.SaveChangesAsync();
+                    }
+
                     File.Delete(temp);
-                    Console.WriteLine($"{file.FullName} exists!");
+                    Console.WriteLine($"  NOTE: {file.FullName} again!");
                 }
                 else // Add unique file
                 {
+                    using (ApplicationContext db = new ApplicationContext())
+                    {
+                        Item item = new Item { Id = guid, Name = file.Name, Path = file.FullName, Registered = file.LastWriteTime };
+
+                        Link uplink = new Link { Item = guid, Next = parent, Parent = true };
+                        Link downlink = new Link { Item = parent, Next = guid, Parent = false };
+
+                        await db.Items.AddAsync(item);
+                        await db.Links.AddRangeAsync(uplink, downlink);
+                        await db.SaveChangesAsync();
+                    }
+
                     File.Move(temp, path);
-                    //Console.WriteLine($@"{parent}\{guid} {file.FullName}");
                 }
 #if !DEBUG
                 file.Delete();
@@ -140,9 +189,7 @@ namespace BulkLoader
             }
             catch
             {
-                //Console.BackgroundColor = ConsoleColor.Red; // Unuseful with Async
                 Console.WriteLine($"  ERROR: {file.FullName} skipped!");
-                //Console.ResetColor();
             }
         }
     }
