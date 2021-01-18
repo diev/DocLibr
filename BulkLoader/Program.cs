@@ -28,6 +28,10 @@ namespace BulkLoader
         readonly static string pathSource = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         readonly static string pathStore = Path.Combine(Environment.ExpandEnvironmentVariables("%TEMP%"), "DocLibr");
 
+        static long totalDirs = 0;
+        static long totalFiles = 0;
+        static long totalSize = 0;
+
         public static async Task Main(string[] args)
         {
             DirectoryInfo dirSource = new DirectoryInfo(pathSource);
@@ -46,6 +50,7 @@ namespace BulkLoader
             }
 
             await EachDirAsync(dirSource, Guid.Empty);
+            Console.WriteLine($"Total Dirs: {totalDirs}, Files: {totalFiles}, Size: {totalSize / 1024 / 1024}Mb done.");
         }
 
         /// <summary>
@@ -54,16 +59,18 @@ namespace BulkLoader
         /// <param name="dir">Folder to process</param>
         public static Task EachDirAsync(DirectoryInfo dir, Guid parent)
         {
+            totalDirs++;
             Guid guid = FileIO.GuidPath(dir.FullName);
 
-            Console.WriteLine($@"{parent}\{guid} {dir.FullName}\");
+            //Console.WriteLine($@"{parent}\{guid} {dir.FullName}\");
+            Console.WriteLine($"{dir.FullName}");
 
             //Skip possible exceptions with default options (no hidden, no restricted, etc.)
             EnumerationOptions options = new EnumerationOptions();
 
             foreach (var fi in dir.GetFiles("*", options))
             {
-                _ = EachFileAsync(fi, guid);
+                _ = EachFileAsync(fi, guid, true);
             }
 
             foreach (var di in dir.GetDirectories("*", options))
@@ -78,24 +85,40 @@ namespace BulkLoader
         /// Process every file
         /// </summary>
         /// <param name="file">File to process</param>
-        public static async Task EachFileAsync(FileInfo file, Guid parent)
+        /// <param name="parent">Id of file's parent</param>
+        /// <param name="compression">Compress stream with GZip</param>
+        public static async Task EachFileAsync(FileInfo file, Guid parent, bool compression = false)
         {
+            totalFiles++;
+            totalSize += file.Length;
             string ext = file.Extension.ToLower();
-            string temp = Path.Combine(pathStore, file.Name);
+            string temp = Path.GetTempFileName(); // Path.Combine(pathStore, file.Name);
 
             try
             {
-                switch (ext)
+                if (compression)
                 {
-                    case ".gz":
-                    case ".zip":
-                        file.CopyTo(temp, true);
-                        break;
+                    switch (ext)
+                    {
+                        case ".gz":
+                        case ".zip":
+                        case ".arj":
+                        case ".avi":
+                        case ".mp4":
+                        //case ".jpg":
+                        //case ".png":
+                            file.CopyTo(temp, true);
+                            break;
 
-                    default:
-                        await FileIO.CompressFileAsync(file, temp);
-                        ext += ".gz";
-                        break;
+                        default:
+                            await FileIO.CompressFileAsync(file, temp);
+                            ext += ".gz";
+                            break;
+                    }
+                }
+                else
+                {
+                    file.CopyTo(temp, true);
                 }
 
                 Guid guid = await FileIO.GuidFileAsync(temp);
@@ -109,7 +132,7 @@ namespace BulkLoader
                 else // Add unique file
                 {
                     File.Move(temp, path);
-                    Console.WriteLine($@"{parent}\{guid} {file.FullName}");
+                    //Console.WriteLine($@"{parent}\{guid} {file.FullName}");
                 }
 #if !DEBUG
                 file.Delete();
