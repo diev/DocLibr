@@ -16,8 +16,6 @@
 #endregion
 
 using System;
-using System.Collections.Generic;
-using System.ComponentModel;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -28,18 +26,20 @@ namespace Model
         public Guid Id { get; set; }
         public DateTime Registered { get; set; }
         public string Name { get; set; }
-        public string Path { get; set; }
+        public string Ext { get; set; } = string.Empty;
         public DateTime Date { get; set; }
         public string No { get; set; }
         public string Comments { get; set; }
     }
 
+    [Index(nameof(PrevId))]
+    [Index(nameof(NextId))]
     public class Link
     {
         public int Id { get; set; }
-        public Guid Item { get; set; }
-        public Guid Next { get; set; }
-        public bool Parent { get; set; }
+        public Guid PrevId { get; set; }
+        public Guid NextId { get; set; }
+        public string Path { get; set; }
     }
 
     public class ApplicationContext : DbContext
@@ -49,7 +49,7 @@ namespace Model
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseSqlServer("Server=(localdb)\\mssqllocaldb;Database=doclibr;Trusted_Connection=True;");
+            optionsBuilder.UseSqlServer("Server=(localdb)\\MSSQLLocalDB;Database=DocLibr;Trusted_Connection=True;");
         }
     }
 }

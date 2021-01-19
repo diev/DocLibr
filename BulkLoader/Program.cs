@@ -27,19 +27,35 @@ namespace BulkLoader
 {
     public class Program
     {
+        #region Init
         //TODO: Option
-        readonly static string pathSource = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        readonly static string pathStore = Path.Combine(Environment.ExpandEnvironmentVariables("%TEMP%"), "DocLibr");
+        static readonly string pathSource = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        static readonly string pathStore = Path.Combine(Environment.ExpandEnvironmentVariables("%TEMP%"), "DocLibr");
+        static readonly int startLevel = 0; // Skip dateless archive folders like 2021\2021-01\* (2)
 
+        //Skip possible exceptions with default options (no hidden, no restricted, etc.)
+        static readonly EnumerationOptions IOoptions = new EnumerationOptions();
+
+        static readonly Guid RootId = Guid.Empty; // Start folder's Links.PrevId
+        #endregion
+
+        #region Precalc
+        static readonly DirectoryInfo dirSource = new DirectoryInfo(pathSource);
+        static readonly DirectoryInfo dirStore = new DirectoryInfo(pathStore);
+
+        static readonly string RootName = dirSource.Parent.Name;
+        //static readonly int pathCut = dirSource.Parent.FullName.Length + 1;
+        static readonly int pathCut = dirSource.FullName.Length + 1;
+
+        static int totalLevels = 0;
         static long totalDirs = 0;
         static long totalFiles = 0;
+        static long totalDoubles = 0;
         static long totalSize = 0;
+        #endregion
 
         public static async Task Main(string[] args)
         {
-            DirectoryInfo dirSource = new DirectoryInfo(pathSource);
-            DirectoryInfo dirStore = new DirectoryInfo(pathStore);
-
 #if DEBUG
             if (dirStore.Exists)
             {
@@ -52,7 +68,7 @@ namespace BulkLoader
                 dirStore.Create();
             }
 
-            using (ApplicationContext db = new ApplicationContext())
+            using (var db = new ApplicationContext())
             {
 #if DEBUG
                 await db.Database.EnsureDeletedAsync();
@@ -60,53 +76,84 @@ namespace BulkLoader
                 await db.Database.EnsureCreatedAsync();
             }
 
-            await EachDirAsync(dirSource, Guid.Empty);
-            Console.WriteLine($"\nTotal Dirs: {totalDirs}, Files: {totalFiles}, Size: {totalSize / 1024 / 1024}Mb done.\n");
+            await EachDirAsync(dirSource, RootId, 0);
 
-            using (ApplicationContext db = new ApplicationContext())
+            #region Output
+#if DEBUG
+            Console.WriteLine($"\nLinks in {RootName} ({RootId}):\n");
+            using (var db = new ApplicationContext())
             {
-                var items = db.Items.ToList();
-                foreach (Item item in items)
+                var links = db.Links.ToList();
+                foreach (var link in links)
                 {
-                    Console.WriteLine($"{item.Id} {item.Name}");
+                    Console.WriteLine($"{link.PrevId} {link.NextId} {link.Path}");
                 }
             }
+#endif
+            Console.WriteLine($"\nTotal Dirs: {totalDirs}, Levels: {totalLevels}-{startLevel}, Files: {totalFiles}+{totalDoubles}, Size: {totalSize} bytes done.\n");
+            #endregion
         }
 
         /// <summary>
         /// Process recursively every folder with files and subfolders
         /// </summary>
         /// <param name="dir">Folder to process</param>
-        public static async Task EachDirAsync(DirectoryInfo dir, Guid parent)
+        public static async Task EachDirAsync(DirectoryInfo parentDir, Guid parentId, int level)
         {
+            if (level > totalLevels)
+            {
+                totalLevels = level;
+            }
             totalDirs++;
-            Guid guid = FileIO.GuidPath(dir.FullName);
 
-            using (ApplicationContext db = new ApplicationContext())
+
+            if (level < startLevel) //skip
             {
-                Item item = new Item { Id = guid, Name = dir.Name, Path = dir.FullName, Registered = dir.CreationTime };
-
-                Link uplink = new Link { Item = guid, Next = parent, Parent = true };
-                Link downlink = new Link { Item = parent, Next = guid, Parent = false };
-
-                await db.Items.AddAsync(item);
-                await db.Links.AddRangeAsync(uplink, downlink);
-                await db.SaveChangesAsync();
+                foreach (var dir in parentDir.GetDirectories("*", IOoptions))
+                {
+                    await EachDirAsync(dir, parentId, level + 1);
+                }
             }
-
-            Console.WriteLine($"{dir.FullName}");
-
-            //Skip possible exceptions with default options (no hidden, no restricted, etc.)
-            EnumerationOptions options = new EnumerationOptions();
-
-            foreach (var fi in dir.GetFiles("*", options))
+            else if (level == startLevel) //start
             {
-                await EachFileAsync(fi, guid, true);
+                foreach (var file in parentDir.GetFiles("*", IOoptions))
+                {
+                    await EachFileAsync(file, parentId, true);
+                }
+
+                foreach (var dir in parentDir.GetDirectories("*", IOoptions))
+                {
+                    await EachDirAsync(dir, parentId, level + 1);
+                }
             }
-
-            foreach (var di in dir.GetDirectories("*", options))
+            else //deeper
             {
-                await EachDirAsync(di, guid);
+                var guid = FileIO.GuidPath(parentDir.FullName);
+
+                // Normalize Name
+                string name = parentDir.Name.Trim();
+                while (name.Contains("  "))
+                {
+                    name = name.Replace("  ", " ");
+                }
+                name = name.ToUpper()[0] + name[1..];
+
+                var item = new Item { Id = guid, Name = name, Registered = parentDir.CreationTime };
+                var link = new Link { PrevId = parentId, NextId = guid, Path = parentDir.FullName[pathCut..] }; //TODO: pathCut+startLevel
+
+                await AddDataAsync(item, link);
+
+                Console.WriteLine($"{parentDir.FullName}");
+
+                foreach (var file in parentDir.GetFiles("*", IOoptions))
+                {
+                    await EachFileAsync(file, guid, true);
+                }
+
+                foreach (var dir in parentDir.GetDirectories("*", IOoptions))
+                {
+                    await EachDirAsync(dir, guid, level + 1);
+                }
             }
         }
 
@@ -114,14 +161,26 @@ namespace BulkLoader
         /// Process every file
         /// </summary>
         /// <param name="file">File to process</param>
-        /// <param name="parent">Id of file's parent</param>
-        /// <param name="compression">Compress stream with GZip</param>
-        public static async Task EachFileAsync(FileInfo file, Guid parent, bool compression = false)
+        /// <param name="parentId">Id of parent directory</param>
+        /// <param name="compression">Compress streams with GZip</param>
+        public static async Task EachFileAsync(FileInfo file, Guid parentId, bool compression = false)
         {
             totalFiles++;
             totalSize += file.Length;
             string ext = file.Extension.ToLower();
+            string ext2 = ext;
             string temp = Path.GetTempFileName(); // Path.Combine(pathStore, file.Name);
+
+            // Normalize Extension
+            switch (ext)
+            {
+                case ".jpeg":
+                    ext = ".jpg";
+                    break;
+                case ".tiff":
+                    ext = ".tif";
+                    break;
+            }
 
             try
             {
@@ -131,17 +190,19 @@ namespace BulkLoader
                     {
                         case ".gz":
                         case ".zip":
+                        case ".7z":
                         case ".arj":
+                        case ".rar":
                         case ".avi":
                         case ".mp4":
-                        //case ".jpg":
-                        //case ".png":
+                            //case ".jpg":
+                            //case ".png":
                             file.CopyTo(temp, true);
                             break;
 
                         default:
                             await FileIO.CompressFileAsync(file, temp);
-                            ext += ".gz";
+                            ext2 = ext + ".gz";
                             break;
                     }
                 }
@@ -150,37 +211,30 @@ namespace BulkLoader
                     file.CopyTo(temp, true);
                 }
 
-                Guid guid = await FileIO.GuidFileAsync(temp);
-                string path = FileIO.CreatePath(pathStore, guid, ext);
+                var guid = await FileIO.GuidFileAsync(temp);
+                string path = FileIO.CreatePath(pathStore, guid, ext2);
 
-                if (File.Exists(path)) // Add same file from another folder (ask for edit?)
+                // Normalize Name
+                string name = file.Name;
+                name = name.Remove(name.Length - file.Extension.Length).Trim();
+                while (name.Contains("  "))
                 {
-                    using (ApplicationContext db = new ApplicationContext())
-                    {
-                        Link uplink = new Link { Item = guid, Next = parent, Parent = true };
-                        Link downlink = new Link { Item = parent, Next = guid, Parent = false };
+                    name = name.Replace("  ", " ");
+                }
+                name = name.ToUpper()[0] + name[1..];
 
-                        await db.Links.AddRangeAsync(uplink, downlink);
-                        await db.SaveChangesAsync();
-                    }
+                var item = new Item { Id = guid, Name = name, Ext = ext, Registered = file.LastWriteTime };
+                var link = new Link { PrevId = parentId, NextId = guid, Path = file.FullName[pathCut..] };
+
+                if (File.Exists(path) || !await AddDataAsync(item, link))
+                {
+                    totalDoubles++;
+                    await AddDataAsync(link);
 
                     File.Delete(temp);
-                    Console.WriteLine($"  NOTE: {file.FullName} again!");
                 }
-                else // Add unique file
+                else // Unique file
                 {
-                    using (ApplicationContext db = new ApplicationContext())
-                    {
-                        Item item = new Item { Id = guid, Name = file.Name, Path = file.FullName, Registered = file.LastWriteTime };
-
-                        Link uplink = new Link { Item = guid, Next = parent, Parent = true };
-                        Link downlink = new Link { Item = parent, Next = guid, Parent = false };
-
-                        await db.Items.AddAsync(item);
-                        await db.Links.AddRangeAsync(uplink, downlink);
-                        await db.SaveChangesAsync();
-                    }
-
                     File.Move(temp, path);
                 }
 #if !DEBUG
@@ -190,6 +244,39 @@ namespace BulkLoader
             catch
             {
                 Console.WriteLine($"  ERROR: {file.FullName} skipped!");
+            }
+        }
+
+        private static async Task<bool> AddDataAsync(Link link)
+        {
+            using var db = new ApplicationContext();
+            db.Links.Add(link);
+
+            try
+            {
+                await db.SaveChangesAsync();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static async Task<bool> AddDataAsync(Item item, Link link)
+        {
+            using var db = new ApplicationContext();
+            db.Items.Add(item);
+            db.Links.Add(link);
+
+            try
+            {
+                await db.SaveChangesAsync();
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
     }
