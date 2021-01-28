@@ -33,6 +33,19 @@ namespace Tools
         /// </summary>
         /// <param name="file">Source file</param>
         /// <param name="path">Destination file</param>
+        public static void CompressFile(FileInfo file, string path)
+        {
+            using FileStream originalStream = file.OpenRead();
+            using FileStream gzipStream = File.Create(path);
+            using GZipStream compressionStream = new GZipStream(gzipStream, CompressionMode.Compress);
+            originalStream.CopyTo(compressionStream);
+        }
+
+        /// <summary>
+        /// Compress a file with GZip
+        /// </summary>
+        /// <param name="file">Source file</param>
+        /// <param name="path">Destination file</param>
         public static async Task CompressFileAsync(FileInfo file, string path)
         {
             using FileStream originalStream = file.OpenRead();
@@ -63,6 +76,19 @@ namespace Tools
         {
             byte[] data = Encoding.UTF8.GetBytes(path);
             byte[] bytes = md5.ComputeHash(data); // MD5 produces 16 bytes like GUID
+            Guid hash = new Guid(bytes);
+            return hash;
+        }
+
+        /// <summary>
+        /// Get the guid from the hash of a file
+        /// </summary>
+        /// <param name="filename">Source file</param>
+        /// <returns>Guid of file aka MD5 hash</returns>
+        public static Guid GuidFile(string filename)
+        {
+            using FileStream fileStream = File.OpenRead(filename);
+            byte[] bytes = md5.ComputeHash(fileStream); // MD5 produces 16 bytes like GUID
             Guid hash = new Guid(bytes);
             return hash;
         }

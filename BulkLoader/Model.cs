@@ -16,6 +16,7 @@
 #endregion
 
 using System;
+using System.Collections.Generic;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -30,16 +31,18 @@ namespace Model
         public DateTime Date { get; set; }
         public string No { get; set; }
         public string Comments { get; set; }
+
+        public List<Item> Parents { get; set; } = new List<Item>();
+        public List<Item> Children { get; set; } = new List<Item>();
     }
 
-    [Index(nameof(PrevId))]
-    [Index(nameof(NextId))]
     public class Link
     {
-        public int Id { get; set; }
-        public Guid PrevId { get; set; }
-        public Guid NextId { get; set; }
-        public string Path { get; set; }
+        public Guid ParentId { get; set; }
+        public Item Parent { get; set; }
+
+        public Guid ChildId { get; set; }
+        public Item Child { get; set; }
     }
 
     public class ApplicationContext : DbContext
@@ -50,6 +53,54 @@ namespace Model
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             optionsBuilder.UseSqlServer("Server=(localdb)\\MSSQLLocalDB;Database=DocLibr;Trusted_Connection=True;");
+        }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Item>(entity =>
+            {
+                entity.HasKey(item => item.Id);
+
+                entity.Property(item => item.Name)
+                    .IsRequired();
+            });
+
+            modelBuilder.Entity<Item>(entity =>
+            {
+                entity.HasKey(i => i.Id);
+
+                entity.Property(i => i.Id)
+                    .ValueGeneratedNever();
+                entity.Property(i => i.Name)
+                    .IsRequired();
+
+                entity.HasMany(i => i.Parents)
+                    .WithMany(i => i.Children)
+                    .UsingEntity<Link>(
+                        j => j
+                            .HasOne(p => p.Parent)
+                            .WithMany()
+                            //.WithMany(l => l.Links)
+                            .HasForeignKey(p => p.ParentId)
+                            .OnDelete(DeleteBehavior.Restrict),
+                        j => j
+                            .HasOne(c => c.Child)
+                            .WithMany()
+                            //.WithMany(l => l.Links)
+                            .HasForeignKey(c => c.ChildId)
+                            .OnDelete(DeleteBehavior.Restrict),
+                        j =>
+                        {
+                            j.HasKey(l => new { l.ParentId, l.ChildId });
+                            j.Property(l => l.ParentId)
+                                .ValueGeneratedNever();
+                            j.Property(l => l.ChildId)
+                                .ValueGeneratedNever();
+                            j.HasIndex(l => l.ParentId);
+                            j.HasIndex(l => l.ChildId);
+                            j.ToTable("Links");
+                        });
+            });
         }
     }
 }
